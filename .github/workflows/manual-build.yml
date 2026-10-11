@@ -1,0 +1,160 @@
+name: Manual Android-MCP Windows EXE
+
+# Build only when manually selected in GitHub Actions.
+# JavaScript actions run on Node.js 24; Python MCP build remains Python 3.13.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-exe:
+    name: Build standalone Windows MCP executable
+    runs-on: windows-latest
+    timeout-minutes: 40
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Install locked Android-MCP dependencies and PyInstaller
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          uv sync --locked
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          uv pip install --python .venv/Scripts/python.exe 'pyinstaller>=6.16,<7' 'lupa==2.6'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      # --console is required for MCP stdio. --onefile bundles Python and
+      # Python packages but uses the host computer's existing ADB.
+      - name: Package android-mcp.exe with PyInstaller
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & .venv/Scripts/pyinstaller.exe --noconfirm --clean --onefile --console --noupx --debug=noarchive --name android-mcp `
+            --paths src `
+            --additional-hooks-dir scripts/pyinstaller_hooks `
+            --collect-all fastmcp `
+            --collect-all mcp `
+            --collect-all uiautomator2 `
+            --collect-all fakeredis `
+            --collect-all lupa `
+            --recursive-copy-metadata fastmcp `
+            --recursive-copy-metadata mcp `
+            --copy-metadata uiautomator2 `
+            --copy-metadata android-mcp `
+            --collect-submodules diskcache `
+            --collect-submodules adbutils `
+            --collect-submodules android_mcp `
+            --add-data 'src/android_mcp/skills/android-device-automation/SKILL.md;android_mcp/skills/android-device-automation' `
+            scripts/windows_exe_entry.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Verify executable and MCP stdio protocol
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & .venv/Scripts/python.exe scripts/verify_windows_exe.py dist/android-mcp.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Validate embedded skill and installer source
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & .venv/Scripts/python.exe scripts/verify_client_assets.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & .venv/Scripts/python.exe scripts/verify_integrated_installer.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Verify GUI and CLI integration without installed client CLIs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & dist/android-mcp.exe install --all --dry-run
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & dist/android-mcp.exe install codex --dry-run
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & dist/android-mcp.exe install chatgpt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & dist/android-mcp.exe install claude
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & dist/android-mcp.exe install claude-desktop
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & dist/android-mcp.exe install antigravity
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & dist/android-mcp.exe install opencode
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          $configPath = Join-Path $HOME '.codex/config.toml'
+          if (-not (Test-Path $configPath)) { throw 'ChatGPT/Codex TOML configuration missing' }
+          $codexText = Get-Content $configPath -Raw
+          if ($codexText -notmatch '\[mcp_servers\.android-mcp\]') { throw 'Codex server table not found' }
+          if ($codexText -notmatch 'startup_timeout_sec = 60') { throw 'Codex startup timeout missing' }
+
+          $claude = Get-Content (Join-Path $HOME '.claude.json') -Raw | ConvertFrom-Json
+          $agy = Get-Content (Join-Path $HOME '.gemini/config/mcp_config.json') -Raw | ConvertFrom-Json
+          $oc = Get-Content (Join-Path $HOME '.config/opencode/opencode.json') -Raw | ConvertFrom-Json
+          $expected = (Resolve-Path dist/android-mcp.exe).Path
+          if ($claude.mcpServers.'android-mcp'.command -ne $expected) { throw 'Claude Code MCP configuration mismatch' }
+          if ($agy.mcpServers.'android-mcp'.command -ne $expected) { throw 'Antigravity MCP configuration mismatch' }
+          if ($oc.mcp.'android-mcp'.command[0] -ne $expected) { throw 'OpenCode MCP configuration mismatch' }
+          $desktop = Join-Path $env:APPDATA 'Claude/claude_desktop_config.json'
+          if (-not (Test-Path $desktop)) { throw 'Claude Desktop configuration missing' }
+          $claudeDesktop = Get-Content $desktop -Raw | ConvertFrom-Json
+          if ($claudeDesktop.mcpServers.'android-mcp'.command -ne $expected) { throw 'Claude Desktop MCP configuration mismatch' }
+          foreach ($skill in @(
+            (Join-Path $HOME '.agents/skills/android-device-automation/SKILL.md'),
+            (Join-Path $HOME '.claude/skills/android-device-automation/SKILL.md'),
+            (Join-Path $HOME '.gemini/config/skills/android-device-automation/SKILL.md'),
+            (Join-Path $HOME '.gemini/antigravity-cli/skills/android-device-automation/SKILL.md'),
+            (Join-Path $HOME '.config/opencode/skills/android-device-automation/SKILL.md')
+          )) {
+            if (-not (Test-Path $skill)) { throw "Skill missing: $skill" }
+          }
+          Write-Host 'Built-in EXE installer verified for ChatGPT desktop Codex, Claude Code/Desktop, Antigravity, OpenCode.'
+
+      - name: Verify ADB is not bundled
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $files = & .venv/Scripts/pyi-archive_viewer.exe -l dist/android-mcp.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ($files -match '(?i)[\\/]adb\.exe|\badb\.exe\b') {
+            throw 'Bundled adb.exe detected; this build must use host ADB only.'
+          }
+          Write-Host 'No adb.exe was found in the executable archive.'
+          Get-FileHash dist/android-mcp.exe -Algorithm SHA256 | Format-List
+
+      # Preserve packaging reports even if frozen startup checks fail.
+      - name: Upload PyInstaller diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: android-mcp-exe-build-diagnostics
+          path: |
+            build/android-mcp/warn-android-mcp.txt
+            build/android-mcp/xref-android-mcp.html
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Upload Windows executable
+        uses: actions/upload-artifact@v6
+        with:
+          name: android-mcp-windows-exe
+          path: dist/android-mcp.exe
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0

@@ -38,8 +38,27 @@ args, _ = parser.parse_known_args()
 
 instructions = dedent(
     """
-    Android MCP server provides tools to interact directly with the Android device,
-    thus enabling to operate the mobile device like an actual USER.
+    Android-MCP is a direct Android control MCP server. The calling AI agent
+    (Claude Code, Codex, Antigravity, or OpenCode) handles all reasoning;
+    this server does not need its own LLM API key.
+
+    Android-MCP uses the ADB binary installed on the host computer. Start with
+    ListDevices and choose the intended device before interacting.
+    For each task use Observe -> Decide -> Act -> Verify:
+    - Snapshot(use_vision=False) obtains the live accessibility hierarchy.
+      Use Snapshot(use_vision=True) when visual context is needed.
+    - Prefer ClickBySelector and WaitForElement to hard-coded coordinates or
+      fixed delays. Use Click(x,y) only with freshly observed screen positions.
+    - Focus a field before Type; Type does not itself tap the supplied x/y.
+    - Re-observe and recover from unexpected dialogs or failed actions.
+    - Verify important results with Snapshot or WaitForElement before claiming
+      success. Do not invent observations.
+    - Ask for confirmation before destructive or privacy-sensitive changes.
+
+    The server provides only direct tools: ListDevices, ConnectDevice, Device,
+    Snapshot, Click, ClickBySelector, LongClick, Swipe, Type, Drag, Press,
+    Notification, Wait, and WaitForElement. Do not assume Shell or autonomous
+    mobile_run_task tools exist.
     """
 )
 
