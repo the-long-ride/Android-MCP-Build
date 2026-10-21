@@ -10,7 +10,7 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from android_mcp import installer
+from android_mcp import installer, lifecycle
 
 
 class InstallerTests(unittest.TestCase):
@@ -125,6 +125,88 @@ class InstallerTests(unittest.TestCase):
         self.assertFalse((self.home / ".claude.json").exists())
         self.assertFalse((self.home / ".gemini").exists())
         self.assertFalse((self.home / ".config").exists())
+
+
+    def test_installed_list_and_targeted_uninstall_preserve_other_clients(self):
+        other = self.home / ".claude.json"
+        other.write_text('{"mcpServers":{"foreign":{"command":"other.exe"}}}', encoding="utf-8")
+        self.assertEqual(installer.install(
+            list(installer.ALL_CLIENTS), self.exe, self.home, self.skill,
+        ), 0)
+        found = lifecycle.installed_clients(self.exe, self.home, self.skill)
+        self.assertEqual([x["target"] for x in found], list(installer.ALL_CLIENTS))
+        self.assertTrue(all(x["mcp"] for x in found))
+        self.assertEqual(lifecycle.uninstall(["claude"], self.exe, self.home, self.skill), 0)
+        self.assertNotIn("claude", [x["target"] for x in lifecycle.installed_clients(
+            self.exe, self.home, self.skill,
+        )])
+        claude = json.loads(other.read_text(encoding="utf-8"))
+        self.assertIn("foreign", claude["mcpServers"])
+        self.assertNotIn("android-mcp", claude["mcpServers"])
+        self.assertTrue((self.home / ".codex/config.toml").exists())
+        self.assertFalse((self.home / ".claude/skills/android-device-automation/SKILL.md").exists())
+        self.assertEqual(lifecycle.uninstall(["claude"], self.exe, self.home, self.skill), 0)
+
+    def test_uninstall_all_preserves_other_servers_and_user_data(self):
+        self.home.joinpath(".codex").mkdir(parents=True)
+        original = 'model = "gpt-6"\n\n[mcp_servers.other]\ncommand = "other.exe"\n'
+        self.home.joinpath(".codex/config.toml").write_text(original, encoding="utf-8")
+        self.assertEqual(installer.install(
+            list(installer.ALL_CLIENTS), self.exe, self.home, self.skill,
+        ), 0)
+        self.assertEqual(lifecycle.uninstall(
+            list(installer.ALL_CLIENTS), self.exe, self.home, self.skill,
+        ), 0)
+        self.assertEqual(lifecycle.installed_clients(self.exe, self.home, self.skill), [])
+        remaining = tomllib.loads(
+            (self.home / ".codex/config.toml").read_text(encoding="utf-8")
+        )
+        self.assertEqual(remaining["model"], "gpt-6")
+        self.assertIn("other", remaining["mcp_servers"])
+        self.assertNotIn("android-mcp", remaining["mcp_servers"])
+        self.assertEqual(lifecycle.uninstall(
+            list(installer.ALL_CLIENTS), self.exe, self.home, self.skill,
+        ), 0)
+
+    def test_dry_run_and_changed_skill_are_preserved(self):
+        self.assertEqual(installer.install(["opencode"], self.exe, self.home, self.skill), 0)
+        skill = installer._skill_paths("opencode", self.home)[0]
+        skill.write_text("user-edited", encoding="utf-8")
+        self.assertEqual(lifecycle.uninstall(
+            ["opencode"], self.exe, self.home, self.skill, dry_run=True,
+        ), 0)
+        self.assertTrue(skill.exists())
+        self.assertTrue(lifecycle.installed_clients(self.exe, self.home, self.skill)[0]["mcp"])
+        self.assertEqual(lifecycle.uninstall(["opencode"], self.exe, self.home, self.skill), 0)
+        self.assertEqual(skill.read_text(encoding="utf-8"), "user-edited")
+        self.assertEqual(lifecycle.installed_clients(self.exe, self.home, self.skill), [])
+
+    def test_uninstall_symlink_does_not_remove_destination(self):
+        target = self.home / "owned" / "android-device-automation" / "SKILL.md"
+        target.parent.mkdir(parents=True)
+        target.write_text(self.skill, encoding="utf-8")
+        link = installer._skill_paths("claude", self.home)[0]
+        link.parent.mkdir(parents=True)
+        try:
+            link.symlink_to(target)
+        except OSError:
+            self.skipTest("Symlink creation not supported")
+        self.assertEqual(lifecycle.uninstall(["claude"], self.exe, self.home, self.skill), 0)
+        self.assertFalse(link.exists())
+        self.assertFalse(link.is_symlink())
+        self.assertEqual(target.read_text(encoding="utf-8"), self.skill)
+
+    def test_unmanaged_mcp_registration_is_not_removed(self):
+        config = self.home / ".claude.json"
+        config.write_text(
+            '{"mcpServers":{"android-mcp":{"command":"other.exe","args":[]}}}',
+            encoding="utf-8",
+        )
+        self.assertEqual(lifecycle.uninstall(["claude"], self.exe, self.home, self.skill), 0)
+        self.assertEqual(
+            json.loads(config.read_text())["mcpServers"]["android-mcp"]["command"],
+            "other.exe",
+        )
 
     def test_install_all_without_any_cli(self):
         with patch.object(installer.shutil, "which", return_value=None):
