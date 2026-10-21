@@ -102,3 +102,27 @@ It never needs Android Studio to launch.
 
 The EXE is an MCP **server**, not an Android app (APK). It runs on Windows.
 You do not need a separate LLM API key; Claude Code does the reasoning.
+
+## Inspect and uninstall AI client integration
+
+The executable can show installed AI clients based on their actual MCP server
+registration and skill files. It does not require Python or an AI provider key.
+
+```powershell
+.\\android-mcp.exe installed-list
+.\\android-mcp.exe uninstall claude
+.\\android-mcp.exe uninstall codex
+.\\android-mcp.exe uninstall antigravity
+.\\android-mcp.exe uninstall opencode
+.\\android-mcp.exe uninstall claude-desktop
+.\\android-mcp.exe uninstall --all --dry-run
+.\\android-mcp.exe uninstall --all
+```
+
+Uninstall removes only the managed `android-mcp` MCP registration and
+unmodified `android-device-automation` skill files (or owned skill symlinks)
+for the selected AI client. Personal settings and other MCP servers are
+preserved. With `--all`, this applies to every supported client; it does not
+delete the EXE itself, ADB, or your data. Modified skill files and MCP entries
+pointing to a different binary are deliberately preserved. Symlinks are
+unlinked, not followed.

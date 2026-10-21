@@ -16,11 +16,16 @@ def _show_help() -> None:
             "  install                   Configure an AI client and install its Agent Skill\n"
             "  install --all             Configure all supported AI client families\n"
             "  install --help            Show installer targets and options\n"
+            "  uninstall <client>        Remove only Android-MCP integration for one client\n"
+            "  uninstall --all           Remove all Android-MCP integrations\n"
+            "  installed-list            List clients with Android-MCP installed\n"
             "\n"
             "Examples:\n"
             "  android-mcp.exe install --all\n"
             "  android-mcp.exe install codex --dry-run\n"
             "  android-mcp.exe install claude-desktop --replace\n"
+            "  android-mcp.exe installed-list\n"
+            "  android-mcp.exe uninstall codex\n"
             "\n"
             "Run without arguments to start the MCP stdio server. Your AI client\n"
             "starts the server automatically after installation."
@@ -47,6 +52,12 @@ def main() -> int:
     if len(sys.argv) > 1 and sys.argv[1] == "install":
         from android_mcp.installer import main as install_main
         return install_main(sys.argv[2:])
+    if len(sys.argv) > 1 and sys.argv[1] == "uninstall":
+        from android_mcp.lifecycle import main_uninstall
+        return main_uninstall(sys.argv[2:])
+    if len(sys.argv) > 1 and sys.argv[1] == "installed-list":
+        from android_mcp.lifecycle import main_installed_list
+        return main_installed_list(sys.argv[2:])
     if any(arg in ("--help", "-h") for arg in sys.argv[1:]):
         _show_help()
         return 0
