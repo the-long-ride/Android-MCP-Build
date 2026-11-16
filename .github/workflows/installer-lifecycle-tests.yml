@@ -1,0 +1,23 @@
+name: Installer lifecycle tests
+
+on:
+  push:
+    branches: ["feat/uninstall-installed-list"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lifecycle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - name: Test installer, inventory, and removal without external APIs
+        run: |
+          python scripts/verify_client_assets.py
+          python scripts/verify_integrated_installer.py

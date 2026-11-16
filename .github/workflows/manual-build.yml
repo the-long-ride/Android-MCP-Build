@@ -4,6 +4,9 @@ name: Manual Android-MCP Windows EXE
 # JavaScript actions run on Node.js 24; Python MCP build remains Python 3.13.
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - feat/uninstall-installed-list
 
 permissions:
   contents: read
@@ -123,6 +126,18 @@ jobs:
             (Join-Path $HOME '.config/opencode/skills/android-device-automation/SKILL.md')
           )) {
             if (-not (Test-Path $skill)) { throw "Skill missing: $skill" }
+          }
+          & dist/android-mcp.exe installed-list
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & dist/android-mcp.exe uninstall claude --dry-run
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & dist/android-mcp.exe uninstall claude
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & dist/android-mcp.exe uninstall --all
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $remaining = & dist/android-mcp.exe installed-list
+          if ($LASTEXITCODE -ne 0 -or ($remaining -notmatch 'No Android-MCP AI agent integrations found')) {
+            throw "Android-MCP uninstall --all left managed registrations: $remaining"
           }
           Write-Host 'Built-in EXE installer verified for ChatGPT desktop Codex, Claude Code/Desktop, Antigravity, OpenCode.'
 

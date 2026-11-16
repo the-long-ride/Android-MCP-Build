@@ -21,7 +21,8 @@ def main() -> None:
     assert re.search(r"(?m)^description: .{20,}$", frontmatter.group(1))
     assert "instructions=instructions" in MCP.read_text(encoding="utf-8")
     entry = ENTRY.read_text(encoding="utf-8")
-    assert '"install"' in entry and "server_main()" in entry
+    assert '"install"' in entry and '"uninstall"' in entry and '"installed-list"' in entry
+    assert "server_main()" in entry
     installer = INSTALLER.read_text(encoding="utf-8")
     for keyword in ("claude", "codex", "antigravity", "opencode",
                     "mcp_config.json", "opencode.json", "--all",
